@@ -1,0 +1,141 @@
+/* Generated Code (IMPORT) */
+/* Source File: Stat3220SportsSalariesData2019 (1).xlsx */
+/* Source Path: /home/u62113011/My data */
+/* Code generated on: 11/3/22, 3:50 PM */
+
+%web_drop_table(WORK.IMPORT);
+
+
+FILENAME REFFILE '/home/u62113011/My data/Stat3220SportsSalariesData2019 (6).xlsx';
+
+PROC IMPORT DATAFILE=REFFILE
+	DBMS=XLSX
+	OUT=WORK.IMPORT;
+	GETNAMES=YES;
+RUN;
+
+PROC CONTENTS DATA=work.import; RUN;
+
+
+%web_open_table(WORK.IMPORT);
+
+
+/* Exploratory Data Analysis
+*/
+data mydata.finalproject; *create a new data set saved to your library called homesales2;
+	set work.import; *set with the original table ;
+	MaleSalaryCat=0; *create a varaible called DummyB where every observation will have a value of 0;
+	FemaleSalaryCat=0; *create a varaible called DummyC where every observation will have a value of 0;
+	if MaleSalaryC = 'High Salary' then MaleSalaryCat=1; *if the group is B, then the dummy var will recode to 1;
+	if FemaleSalaryC = "High Salary" then FemaleSalaryCat=1; *similarly to above;
+run;
+
+data mydata.finalproject;
+	set mydata.finalproject;
+	interaction = AvgSalariesMenHC*AvgSalariesWomenHC;
+	MenSalary_FemaleC = AvgSalariesMenHC*FemaleSalaryCat;
+	WomenSalary_MaleC = AvgSalariesWomenHC*MaleSalaryCat;
+run;
+
+
+proc sgscatter data= mydata.finalproject;
+	plot disparityProfit* (AvgSalariesMenHC AVGSalariesWomenHC MenSalary_FemaleC WomenSalary_MaleC)/ columns=1;
+run;
+
+/* Histogram of profit disparities */
+proc sgplot data=mydata.finalproject;
+	histogram DisparityProfit /;
+	yaxis grid;
+run;
+
+* Check for multicolinearity;
+proc corr data=mydata.finalproject;
+run;
+
+
+*Men's head coach;
+proc sgplot data = mydata.finalproject;
+scatter x = AvgSalariesMenHC y = disparityProfit / group = FemaleSalaryC;
+reg x = AvgSalariesMenHC y = disparityProfit / group = FemaleSalaryC;
+run;
+
+*Women's head coaching salary;
+proc sgplot data = mydata.finalproject;
+scatter x = AvgSalariesWomenHC y = disparityProfit / group = MaleSalaryC;
+reg x = AvgSalariesWomenHC y = disparityProfit / group = MaleSalaryC;
+run;
+
+
+/* Histogram of Salaries */
+proc sgplot data=MYDATA.FINALPROJECT;
+	histogram AvgSalariesMenHC /;
+	yaxis grid;
+run;
+
+proc sgplot data=MYDATA.FINALPROJECT;
+	histogram AvgSalariesWomenHC /;
+	yaxis grid;
+run;
+
+/* Logistic Regression EDA
+*/
+proc sgplot data=mydata.finalproject;
+vbox AvgSalariesMenHC / category=ProfitDisparityC;
+run;
+
+proc sgplot data=mydata.finalproject;
+vbox AvgSalariesWomenHC / category=ProfitDisparityC;
+run;
+
+* Variable Screening;
+proc princomp data=mydata.finalproject plots=all;
+run;
+
+* Full MLR model building;
+proc reg data=MYDATA.FINALPROJECT alpha=0.05 plots(only)=all;
+	model DisparityProfit=AvgSalariesMenHC AvgSalariesWomenHC interaction/
+run;
+
+* Model construction based on AIC values;
+proc reg data=MYDATA.FINALPROJECT outest=est plots(only)=all;
+	model DisparityProfit=AvgSalariesMenHC AvgSalariesWomenHC interaction/
+	selection=rsquare aic bic;
+	proc print data=est;
+run;
+
+* See if new model is better;
+proc reg data=MYDATA.FINALPROJECT plots(only)=all;
+	model DisparityProfit=AvgSalariesMenHC interaction/
+run;
+
+* Removing influential points;
+proc reg data=MYDATA.FINALPROJECT alpha=0.05 plots(only)=all;
+	model DisparityProfit=AvgSalariesMenHC interaction/ r influence;
+	output out=mydata.finalModel cookd=CooksD residual=Res h=leverage;
+run;
+
+
+*Cook's distance is 4/n or 0.8 : Leverage needs to be less than 2(k+1)/n or  0.12;
+data mydata.finalmodel;
+set mydata.finalmodel;
+if CooksD > 0.12 then delete;
+if Leverage > 0.08 then delete;
+run;
+
+
+* See if the model is significantly better;
+proc reg data=MYDATA.finalModel alpha=0.05 plots(only)=all;
+	model DisparityProfit=AvgSalariesMenHC interaction/
+run; *The model with the influencial points appears to be worse with lower R^2 and worse cook's distance plot;
+
+
+* Transformations;
+data mydata.profitPlus20mil;
+	set mydata.finalmodel;
+	DisparityPlus20Million=DisparityProfit+20000000;
+run;
+
+
+proc transreg data=mydata.profitPlus20mil test;
+   model BoxCox(DisparityPlus20Million) = identity(AvgSalariesMenHC interaction);
+run; *Lambda value is equal to 1, so no transformation is necessary
